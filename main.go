@@ -148,27 +148,24 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if result.err != nil {
-		status := http.StatusOK
 		errorMessage := result.err.Error()
 
 		if strings.ToLower(authProtocol) == "smtp" {
-			status = http.StatusInternalServerError
 			errorMessage = "Temporary server problem, try again later"
+			w.Header().Add(AuthErrorCodeHeader, result.err.Error())
 		}
 
-		w.WriteHeader(status)
-		fmt.Fprintf(w, "%s: %s\n", AuthStatusHeader, errorMessage)
-		if status == http.StatusInternalServerError {
-			fmt.Fprintf(w, "%s: %s\n", AuthErrorCodeHeader, result.err.Error())
-			fmt.Fprintf(w, "%s: %d\n", AuthWaitHeader, 3)
-		}
+		w.Header().Add(AuthStatusHeader, errorMessage)
+		w.Header().Add(AuthWaitHeader, "3")
+
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 
+	w.Header().Add(AuthStatusHeader, "OK")
+	w.Header().Add(AuthServerHeader, result.serverAddr)
+	w.Header().Add(AuthPortHeader, strconv.Itoa(result.serverPort))
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "%s: OK\n", AuthStatusHeader)
-	fmt.Fprintf(w, "%s: %s\n", AuthServerHeader, result.serverAddr)
-	fmt.Fprintf(w, "%s: %d\n", AuthPortHeader, result.serverPort)
 }
 
 type authResult struct {
