@@ -170,6 +170,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add(AuthServerHeader, result.serverAddr)
 	w.Header().Add(AuthPortHeader, strconv.Itoa(result.serverPort))
 	w.WriteHeader(http.StatusOK)
+	log.Printf("Response Header OK: %#v\n", w.Header())
 }
 
 type authResult struct {
