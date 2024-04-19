@@ -15,9 +15,9 @@ RUN go build
 
 FROM alpine:3.19.1
 
-COPY --from=build-env /build/nginx-mail-auth /nginx-mail-auth
+COPY --from=build-env /build/nginx_mail_auth /nginx_mail_auth
 
 HEALTHCHECK --interval=5s --timeout=3s \
-    CMD ps aux | grep 'nginx-mail-auth' || exit 1
+    CMD ps aux | grep 'nginx_mail_auth' || exit 1
 
-ENTRYPOINT ["/nginx-mail-auth"]
+ENTRYPOINT ["/nginx_mail_auth"]
