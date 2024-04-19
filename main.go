@@ -115,6 +115,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	authMethod := r.Header.Get(AuthMethodHeader)
 	if authMethod == "" || authMethod != "plain" {
 		http.Error(w, "Invalid or missing Auth-Method", http.StatusBadRequest)
+		log.Printf("Response Header Auth-Method: %#v\n", w.Header())
 		return
 	}
 
@@ -127,14 +128,14 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	loginAttempt, _ := strconv.Atoi(loginAttemptStr)
 	if loginAttempt > maxLoginAttempts {
 		http.Error(w, "Too many login attempts", http.StatusUnauthorized)
-		log.Printf("Response Header: %#v\n", w.Header())
+		log.Printf("Response Header Login: %#v\n", w.Header())
 		return
 	}
 
 	invalidAttempts[clientIP]++
 	if invalidAttempts[clientIP] > maxInvalidAttempts {
 		http.Error(w, "Too many invalid attempts", http.StatusUnauthorized)
-		log.Printf("Response Header: %#v\n", w.Header())
+		log.Printf("Response Header Invalid: %#v\n", w.Header())
 		return
 	}
 
@@ -146,6 +147,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		result = authenticateSMTP(authUser, authPass)
 	default:
 		http.Error(w, "Unsupported Auth-Protocol", http.StatusBadRequest)
+		log.Printf("Response Header Auth-Protocol: %#v\n", w.Header())
 		return
 	}
 
@@ -162,7 +164,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(http.StatusOK)
 
-		log.Printf("Response Header: %#v\n", w.Header())
+		log.Printf("Response Header Error: %#v\n", w.Header())
 		return
 	}
 
