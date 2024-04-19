@@ -111,6 +111,7 @@ func handleSignals(cancel context.CancelFunc) {
 }
 
 func authHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Request Header: %#v\n", r.Header)
 	authMethod := r.Header.Get(AuthMethodHeader)
 	if authMethod == "" || authMethod != "plain" {
 		http.Error(w, "Invalid or missing Auth-Method", http.StatusBadRequest)
