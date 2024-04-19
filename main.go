@@ -127,12 +127,14 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	loginAttempt, _ := strconv.Atoi(loginAttemptStr)
 	if loginAttempt > maxLoginAttempts {
 		http.Error(w, "Too many login attempts", http.StatusUnauthorized)
+		log.Printf("Response Header: %#v\n", w.Header())
 		return
 	}
 
 	invalidAttempts[clientIP]++
 	if invalidAttempts[clientIP] > maxInvalidAttempts {
 		http.Error(w, "Too many invalid attempts", http.StatusUnauthorized)
+		log.Printf("Response Header: %#v\n", w.Header())
 		return
 	}
 
@@ -159,6 +161,8 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add(AuthWaitHeader, "3")
 
 		w.WriteHeader(http.StatusOK)
+
+		log.Printf("Response Header: %#v\n", w.Header())
 		return
 	}
 
