@@ -172,6 +172,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add(AuthServerHeader, result.serverAddr)
 	w.Header().Add(AuthPortHeader, strconv.Itoa(result.serverPort))
 	w.WriteHeader(http.StatusOK)
+	invalidAttempts[clientIP] = 0
 	log.Printf("Response Header OK: %#v\n", w.Header())
 }
 
