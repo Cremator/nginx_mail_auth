@@ -12,10 +12,67 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/emersion/go-imap/client"
 )
+
+type stringSlice []string
+
+func (ss *stringSlice) String() string {
+	return strings.Join(*ss, ", ")
+}
+
+func (ss *stringSlice) Set(value string) error {
+	*ss = append(*ss, value)
+	return nil
+}
+
+// KeyValue represents a key-value pair with TTL
+type InvalidAttempts struct {
+	Count      int
+	Expiration time.Time
+}
+
+// Updated KeyValueStore with TTL
+type InvalidStore struct {
+	data map[string]InvalidAttempts
+	mu   sync.RWMutex
+}
+
+// Set adds or updates a key-value pair in the store with a specified TTL
+func (kv *InvalidStore) Set(key string, value int, ttl time.Duration) {
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	expiration := time.Now().Add(ttl)
+	kv.data[key] = InvalidAttempts{
+		Count:      value,
+		Expiration: expiration,
+	}
+}
+
+// Get retrieves the value associated with a key from the store, considering TTL
+func (kv *InvalidStore) Get(key string) (int, bool) {
+	kv.mu.RLock()
+	defer kv.mu.RUnlock()
+
+	item, ok := kv.data[key]
+	if !ok {
+		return 0, false
+	}
+
+	// Check if the item has expired
+	if item.Expiration.IsZero() || time.Now().Before(item.Expiration) {
+		return item.Count, true
+	}
+
+	// If the item has expired, remove it from the store
+	delete(kv.data, key)
+	return 0, false
+}
 
 const (
 	AuthMethodHeader    = "Auth-Method"
@@ -31,29 +88,20 @@ const (
 )
 
 var (
-	port                int
-	maxLoginAttempts    int
-	maxInvalidAttempts  int
-	imapServerAddresses stringSlice
-	smtpServerAddresses stringSlice
-	invalidAttempts     = make(map[string]int)
+	port                 int
+	maxLoginAttempts     int
+	maxInvalidAttempts   int
+	imapServerAddresses  stringSlice
+	smtpServerAddresses  stringSlice
+	invalidAttemptsStore InvalidStore
+	invalidDuration      time.Duration
 )
-
-type stringSlice []string
-
-func (ss *stringSlice) String() string {
-	return strings.Join(*ss, ", ")
-}
-
-func (ss *stringSlice) Set(value string) error {
-	*ss = append(*ss, value)
-	return nil
-}
 
 func init() {
 	flag.IntVar(&port, "port", 9143, "Port to listen on")
 	flag.IntVar(&maxLoginAttempts, "maxloginattempts", 20, "Max login attempts")
 	flag.IntVar(&maxInvalidAttempts, "maxinvalidattempts", 10, "Max invalid attempts")
+	flag.DurationVar(&invalidDuration, "invalidduration", time.Minute*60, "Blocked IP addresses are cleaned up after this period")
 	flag.Var(&imapServerAddresses, "imap", "IMAP server addresses (format: host:port,host:port...)")
 	flag.Var(&smtpServerAddresses, "smtp", "SMTP server addresses (format: host:port,host:port...)")
 	flag.Parse()
@@ -132,8 +180,16 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	invalidAttempts[clientIP]++
-	if invalidAttempts[clientIP] > maxInvalidAttempts {
+	count, valid := invalidAttemptsStore.Get(clientIP)
+	if valid {
+		count++
+		log.Printf("Invalid auth attemp # %d for IP: %s\n", count, clientIP)
+	} else {
+		count = 1
+	}
+	invalidAttemptsStore.Set(clientIP, count, invalidDuration)
+
+	if count > maxInvalidAttempts {
 		http.Error(w, "Too many invalid attempts", http.StatusUnauthorized)
 		log.Printf("Response Header Invalid: %#v\n", w.Header())
 		return
@@ -172,13 +228,13 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add(AuthServerHeader, result.serverAddr)
 	w.Header().Add(AuthPortHeader, strconv.Itoa(result.serverPort))
 	w.WriteHeader(http.StatusOK)
-	invalidAttempts[clientIP] = 0
 	log.Printf("Response Header OK: %#v\n", w.Header())
 }
 
 type authResult struct {
 	serverAddr string
 	serverPort int
+	serverType string
 	err        error
 }
 
@@ -193,7 +249,7 @@ func authenticateIMAP(username, password string) authResult {
 		if err := c.Login(username, password); err == nil {
 			host, portStr, _ := net.SplitHostPort(addr)
 			port, _ := strconv.Atoi(portStr)
-			return authResult{serverAddr: host, serverPort: port}
+			return authResult{serverAddr: host, serverPort: port, serverType: "imap"}
 		}
 	}
 	return authResult{err: fmt.Errorf("failed to authenticate with any IMAP server")}
@@ -204,6 +260,7 @@ func authenticateSMTP(username, password string) authResult {
 	for _, addr := range smtpServerAddresses {
 		res = authenticateSMTPNet(username, password, addr)
 		if res.err == nil {
+			res.serverType = "smtp"
 			return res
 		}
 	}
