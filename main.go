@@ -42,6 +42,13 @@ type InvalidStore struct {
 	mu   sync.RWMutex
 }
 
+// NewKeyValueStore creates a new instance of KeyValueStore.
+func NewInvalidStore() *InvalidStore {
+	return &InvalidStore{
+		data: make(map[string]InvalidAttempts),
+	}
+}
+
 // Set adds or updates a key-value pair in the store with a specified TTL
 func (kv *InvalidStore) Set(key string, value int, ttl time.Duration) {
 	kv.mu.Lock()
@@ -74,6 +81,18 @@ func (kv *InvalidStore) Get(key string) (int, bool) {
 	return 0, false
 }
 
+func (kv *InvalidStore) Delete(key string) {
+	kv.mu.RLock()
+	defer kv.mu.RUnlock()
+
+	_, ok := kv.data[key]
+	if !ok {
+		return
+	}
+
+	delete(kv.data, key)
+}
+
 const (
 	AuthMethodHeader    = "Auth-Method"
 	AuthUserHeader      = "Auth-User"
@@ -93,7 +112,7 @@ var (
 	maxInvalidAttempts   int
 	imapServerAddresses  stringSlice
 	smtpServerAddresses  stringSlice
-	invalidAttemptsStore InvalidStore
+	invalidAttemptsStore = NewInvalidStore()
 	invalidDuration      time.Duration
 )
 
@@ -223,7 +242,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Response Header Error: %#v\n", w.Header())
 		return
 	}
-
+	invalidAttemptsStore.Delete(clientIP)
 	w.Header().Add(AuthStatusHeader, "OK")
 	w.Header().Add(AuthServerHeader, result.serverAddr)
 	w.Header().Add(AuthPortHeader, strconv.Itoa(result.serverPort))
