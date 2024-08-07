@@ -81,6 +81,28 @@ func (kv *InvalidStore) Get(key string) (int, bool) {
 	return 0, false
 }
 
+// Get retrieves the value associated with a key from the store, considering TTL
+func (kv *InvalidStore) ExpireAll() int {
+	kv.mu.RLock()
+	defer kv.mu.RUnlock()
+	if len(kv.data) == 0 {
+		return 0
+	}
+	i := 0
+	keys := []string{}
+	for key := range kv.data {
+		if kv.data[key].Expiration.IsZero() || time.Now().Before(kv.data[key].Expiration) {
+			keys = append(keys, key)
+		}
+
+	}
+	for _, key := range keys {
+
+		delete(kv.data, key)
+	}
+	return i
+}
+
 func (kv *InvalidStore) Delete(key string) {
 	kv.mu.RLock()
 	defer kv.mu.RUnlock()
@@ -248,6 +270,10 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add(AuthPortHeader, strconv.Itoa(result.serverPort))
 	w.WriteHeader(http.StatusOK)
 	log.Printf("Response Header OK: %#v\n", w.Header())
+	i := invalidAttemptsStore.ExpireAll()
+	if i > 0 {
+		log.Printf("Successfully expired %d invalid record(s).\n", i)
+	}
 }
 
 type authResult struct {
