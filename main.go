@@ -132,6 +132,7 @@ var (
 	port                 int
 	maxLoginAttempts     int
 	maxInvalidAttempts   int
+	useImapOnly          bool
 	imapServerAddresses  stringSlice
 	smtpServerAddresses  stringSlice
 	invalidAttemptsStore = NewInvalidStore()
@@ -142,6 +143,7 @@ func init() {
 	flag.IntVar(&port, "port", 9143, "Port to listen on")
 	flag.IntVar(&maxLoginAttempts, "maxloginattempts", 20, "Max login attempts")
 	flag.IntVar(&maxInvalidAttempts, "maxinvalidattempts", 10, "Max invalid attempts")
+	flag.BoolVar(&useImapOnly, "useimaponly", false, "Use only IMAP for authenticating both IMAP & SMTP")
 	flag.DurationVar(&invalidDuration, "invalidduration", time.Minute*60, "Blocked IP addresses are cleaned up after this period")
 	flag.Var(&imapServerAddresses, "imap", "IMAP server addresses (format: host:port,host:port...)")
 	flag.Var(&smtpServerAddresses, "smtp", "SMTP server addresses (format: host:port,host:port...)")
@@ -237,6 +239,9 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var result authResult
+	if useImapOnly && authProtocol == "smtp" {
+		authProtocol = "imap"
+	}
 	switch strings.ToLower(authProtocol) {
 	case "imap":
 		result = authenticateIMAP(authUser, authPass)
