@@ -302,7 +302,7 @@ func authenticateIMAP(username, password string) authResult {
 			return authResult{serverAddr: host, serverPort: port, serverType: "imap"}
 		}
 	}
-	return authResult{err: fmt.Errorf("failed to authenticate with any IMAP server")}
+	return authResult{err: fmt.Errorf("failed to authenticate")}
 }
 
 func authenticateSMTP(username, password string) authResult {
@@ -315,7 +315,7 @@ func authenticateSMTP(username, password string) authResult {
 		}
 	}
 	log.Printf("authenticateSMTPNet ERROR: %v\n", res.err)
-	return authResult{err: fmt.Errorf("failed to authenticate with any SMTP server")}
+	return authResult{err: fmt.Errorf("failed to authenticate")}
 }
 
 func authenticateSMTPNet(username, password string, smtpServer string) authResult {
