@@ -37,10 +37,10 @@ type InvalidAttempts struct {
 }
 
 // Updated KeyValueStore with TTL
-type InvalidStore struct {
-	data map[string]InvalidAttempts
-	mu   sync.RWMutex
-}
+// type InvalidStore struct {
+// 	data map[string]InvalidAttempts
+// 	mu   sync.RWMutex
+// }
 
 // NewKeyValueStore creates a new instance of KeyValueStore.
 // func NewInvalidStore() *InvalidStore {
@@ -49,76 +49,118 @@ type InvalidStore struct {
 // 	}
 // }
 
-func (kv *InvalidStore) Init() {
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
-	kv.data = make(map[string]InvalidAttempts)
-}
+// func (kv *InvalidStore) Init() {
+// 	kv.mu.Lock()
+// 	defer kv.mu.Unlock()
+// 	kv.data = make(map[string]InvalidAttempts)
+// }
 
 // Set adds or updates a key-value pair in the store with a specified TTL
-func (kv *InvalidStore) Set(key string, value int, ttl time.Duration) {
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
+// func (kv *InvalidStore) Set(key string, value int, ttl time.Duration) {
+// 	kv.mu.Lock()
+// 	defer kv.mu.Unlock()
 
-	expiration := time.Now().Add(ttl)
-	kv.data[key] = InvalidAttempts{
-		Count:      value,
-		Expiration: expiration,
-	}
-}
-
-// Get retrieves the value associated with a key from the store, considering TTL
-func (kv *InvalidStore) Get(key string) (int, bool) {
-	kv.mu.RLock()
-	defer kv.mu.RUnlock()
-
-	item, ok := kv.data[key]
-	if !ok {
-		return 0, false
-	}
-
-	// Check if the item has expired
-	if item.Expiration.IsZero() || time.Now().After(item.Expiration) {
-		return item.Count, true
-	}
-
-	// If the item has expired, remove it from the store
-	delete(kv.data, key)
-	return 0, false
-}
+// 	expiration := time.Now().Add(ttl)
+// 	kv.data[key] = InvalidAttempts{
+// 		Count:      value,
+// 		Expiration: expiration,
+// 	}
+// }
 
 // Get retrieves the value associated with a key from the store, considering TTL
-func (kv *InvalidStore) ExpireAll() int {
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
-	if len(kv.data) == 0 {
-		return 0
-	}
-	i := 0
+// func (kv *InvalidStore) Get(key string) (int, bool) {
+// 	kv.mu.RLock()
+// 	defer kv.mu.RUnlock()
+
+// 	item, ok := kv.data[key]
+// 	if !ok {
+// 		return 0, false
+// 	}
+
+// 	// Check if the item has expired
+// 	if item.Expiration.IsZero() || time.Now().After(item.Expiration) {
+// 		return item.Count, true
+// 	}
+
+// 	// If the item has expired, remove it from the store
+// 	delete(kv.data, key)
+// 	return 0, false
+// }
+
+// Get retrieves the value associated with a key from the store, considering TTL
+// func (kv *InvalidStore) ExpireAll() int {
+// 	kv.mu.Lock()
+// 	defer kv.mu.Unlock()
+// 	if len(kv.data) == 0 {
+// 		return 0
+// 	}
+// 	i := 0
+// 	keys := []string{}
+// 	for key := range kv.data {
+// 		if kv.data[key].Expiration.IsZero() || time.Now().After(kv.data[key].Expiration) {
+// 			keys = append(keys, key)
+// 		}
+
+// 	}
+// 	for _, key := range keys {
+
+// 		delete(kv.data, key)
+// 	}
+// 	return i
+// }
+
+// func (kv *InvalidStore) Delete(key string) {
+// 	kv.mu.Lock()
+// 	defer kv.mu.Unlock()
+
+// 	_, ok := kv.data[key]
+// 	if !ok {
+// 		return
+// 	}
+
+// 	delete(kv.data, key)
+// }
+
+// Store struct using sync.Map
+type InvalidStore struct {
+	store sync.Map
+}
+
+// Set a value in the store
+func (c *InvalidStore) Set(key string, value InvalidAttempts) {
+	c.store.Store(key, value)
+}
+
+// Get a value by key from the store
+func (c *InvalidStore) Get(key string) (InvalidAttempts, bool) {
+	val, ok := c.store.Load(key)
+	InvalidAttemptsV := val.(InvalidAttempts)
+	return InvalidAttemptsV, ok
+}
+
+// Delete a value by key from the store
+func (c *InvalidStore) Delete(key string) {
+	c.store.Delete(key)
+}
+
+func (c *InvalidStore) Expire() int {
 	keys := []string{}
-	for key := range kv.data {
-		if kv.data[key].Expiration.IsZero() || time.Now().After(kv.data[key].Expiration) {
+	c.store.Range(func(k, v interface{}) bool {
+		key := k.(string)
+		val := v.(InvalidAttempts)
+		if val.Expiration.IsZero() || time.Now().After(val.Expiration) {
 			keys = append(keys, key)
 		}
-
-	}
-	for _, key := range keys {
-
-		delete(kv.data, key)
-	}
-	return i
-}
-
-func (kv *InvalidStore) Delete(key string) {
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
-
-	_, ok := kv.data[key]
-	if !ok {
-		return
+		return true
+	})
+	if i := len(keys); i > 0 {
+		for _, rkey := range keys {
+			c.Delete(rkey)
+		}
+		return i
 	}
 
-	delete(kv.data, key)
+	return 0
 }
 
 const (
@@ -144,6 +186,7 @@ var (
 	//invalidAttemptsStore = NewInvalidStore()
 	invalidAttemptsStore InvalidStore
 	invalidDuration      time.Duration
+	//myMap sync.Map
 )
 
 func init() {
@@ -155,7 +198,7 @@ func init() {
 	flag.Var(&imapServerAddresses, "imap", "IMAP server addresses (format: host:port,host:port...)")
 	flag.Var(&smtpServerAddresses, "smtp", "SMTP server addresses (format: host:port,host:port...)")
 	flag.Parse()
-	invalidAttemptsStore.Init()
+	// invalidAttemptsStore.Init()
 	if len(imapServerAddresses) == 0 || len(smtpServerAddresses) == 0 {
 		fmt.Println("Please provide at least one IMAP and SMTP server address")
 		flag.PrintDefaults()
@@ -209,8 +252,8 @@ func handleSignals(cancel context.CancelFunc) {
 }
 
 func authHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Debug: %#v\n", invalidAttemptsStore.data)
-	i := invalidAttemptsStore.ExpireAll()
+	// log.Printf("Debug: %#v\n", invalidAttemptsStore.data)
+	i := invalidAttemptsStore.Expire()
 	if i > 0 {
 		log.Printf("Successfully expired %d invalid record(s).\n", i)
 	}
@@ -233,18 +276,28 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Response Header Login: %#v\n", w.Header())
 		return
 	}
-
-	count, valid := invalidAttemptsStore.Get(clientIP)
-	log.Printf("Debug count valid for IP %s: %#v, %#v\n", clientIP, count, valid)
-	if valid {
-		count++
-		log.Printf("Invalid auth attemp # %d for IP: %s\n", count, clientIP)
+	// myMap.Store(clientIP, InvalidAttempts{Count: 1, Expiration: time.Now()})
+	// count, valid := invalidAttemptsStore.Get(clientIP)
+	// record := InvalidAttempts{Count: 1, Expiration: time.Now().Add(invalidDuration)}
+	// ok := false
+	record, ok := invalidAttemptsStore.Get(clientIP)
+	if ok {
+		record.Expiration = time.Now().Add(invalidDuration)
+		record.Count++
 	} else {
-		count = 1
+		record = InvalidAttempts{Count: 1, Expiration: time.Now().Add(invalidDuration)}
 	}
-	invalidAttemptsStore.Set(clientIP, count, invalidDuration)
+	invalidAttemptsStore.Set(clientIP, record)
+	// log.Printf("Debug count valid for IP %s: %#v, %#v\n", clientIP, count, valid)
+	// if valid {
+	// 	count++
+	// 	log.Printf("Invalid auth attemp # %d for IP: %s\n", count, clientIP)
+	// } else {
+	// 	count = 1
+	// }
+	// invalidAttemptsStore.Set(clientIP, count, invalidDuration)
 
-	if count > maxInvalidAttempts {
+	if record.Count > maxInvalidAttempts {
 		http.Error(w, "Too many invalid attempts", http.StatusUnauthorized)
 		log.Printf("Response Header Invalid: %#v\n", w.Header())
 		return
@@ -274,7 +327,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Header().Add(AuthStatusHeader, errorMessage)
-		w.Header().Add(AuthWaitHeader, strconv.Itoa(count*3))
+		w.Header().Add(AuthWaitHeader, strconv.Itoa(record.Count*3))
 
 		w.WriteHeader(http.StatusOK)
 
