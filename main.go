@@ -72,7 +72,7 @@ func (kv *InvalidStore) Get(key string) (int, bool) {
 	}
 
 	// Check if the item has expired
-	if item.Expiration.IsZero() || time.Now().Before(item.Expiration) {
+	if item.Expiration.IsZero() || time.Now().After(item.Expiration) {
 		return item.Count, true
 	}
 
@@ -91,7 +91,7 @@ func (kv *InvalidStore) ExpireAll() int {
 	i := 0
 	keys := []string{}
 	for key := range kv.data {
-		if kv.data[key].Expiration.IsZero() || time.Now().Before(kv.data[key].Expiration) {
+		if kv.data[key].Expiration.IsZero() || time.Now().After(kv.data[key].Expiration) {
 			keys = append(keys, key)
 		}
 
