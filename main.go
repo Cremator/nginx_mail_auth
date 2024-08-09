@@ -202,6 +202,10 @@ func handleSignals(cancel context.CancelFunc) {
 }
 
 func authHandler(w http.ResponseWriter, r *http.Request) {
+	i := invalidAttemptsStore.ExpireAll()
+	if i > 0 {
+		log.Printf("Successfully expired %d invalid record(s).\n", i)
+	}
 	log.Printf("Request Header: %#v\n", r.Header)
 	authMethod := r.Header.Get(AuthMethodHeader)
 	if authMethod == "" || authMethod != "plain" {
@@ -215,7 +219,6 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	authProtocol := r.Header.Get(AuthProtocolHeader)
 	loginAttemptStr := r.Header.Get(AuthLoginAttempt)
 	clientIP := r.Header.Get("Client-IP")
-
 	loginAttempt, _ := strconv.Atoi(loginAttemptStr)
 	if loginAttempt > maxLoginAttempts {
 		http.Error(w, "Too many login attempts", http.StatusUnauthorized)
@@ -262,7 +265,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Header().Add(AuthStatusHeader, errorMessage)
-		w.Header().Add(AuthWaitHeader, "3")
+		w.Header().Add(AuthWaitHeader, string(count*3))
 
 		w.WriteHeader(http.StatusOK)
 
@@ -275,10 +278,6 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add(AuthPortHeader, strconv.Itoa(result.serverPort))
 	w.WriteHeader(http.StatusOK)
 	log.Printf("Response Header OK: %#v\n", w.Header())
-	i := invalidAttemptsStore.ExpireAll()
-	if i > 0 {
-		log.Printf("Successfully expired %d invalid record(s).\n", i)
-	}
 }
 
 type authResult struct {
