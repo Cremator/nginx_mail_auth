@@ -235,6 +235,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	count, valid := invalidAttemptsStore.Get(clientIP)
+	log.Printf("Debug count valid for IP %s: %#v, %#v\n", clientIP, count, valid)
 	if valid {
 		count++
 		log.Printf("Invalid auth attemp # %d for IP: %s\n", count, clientIP)
