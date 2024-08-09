@@ -83,8 +83,8 @@ func (kv *InvalidStore) Get(key string) (int, bool) {
 
 // Get retrieves the value associated with a key from the store, considering TTL
 func (kv *InvalidStore) ExpireAll() int {
-	kv.mu.RLock()
-	defer kv.mu.RUnlock()
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
 	if len(kv.data) == 0 {
 		return 0
 	}
@@ -104,8 +104,8 @@ func (kv *InvalidStore) ExpireAll() int {
 }
 
 func (kv *InvalidStore) Delete(key string) {
-	kv.mu.RLock()
-	defer kv.mu.RUnlock()
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
 
 	_, ok := kv.data[key]
 	if !ok {
