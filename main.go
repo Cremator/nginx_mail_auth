@@ -134,8 +134,11 @@ func (c *InvalidStore) Set(key string, value InvalidAttempts) {
 // Get a value by key from the store
 func (c *InvalidStore) Get(key string) (InvalidAttempts, bool) {
 	val, ok := c.store.Load(key)
-	InvalidAttemptsV := val.(InvalidAttempts)
-	return InvalidAttemptsV, ok
+	if ok {
+		InvalidAttemptsV := val.(InvalidAttempts)
+		return InvalidAttemptsV, ok
+	}
+	return InvalidAttempts{Count: 0, Expiration: time.Now()}, false
 }
 
 // Delete a value by key from the store
