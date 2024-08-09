@@ -265,7 +265,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Header().Add(AuthStatusHeader, errorMessage)
-		w.Header().Add(AuthWaitHeader, string(count*3))
+		w.Header().Add(AuthWaitHeader, strconv.Itoa(count*3))
 
 		w.WriteHeader(http.StatusOK)
 
