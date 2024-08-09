@@ -66,6 +66,7 @@ func (st *InvalidStore) Delete(key string) {
 	st.store.Delete(key)
 }
 
+// Walk the map and delete expired keys
 func (st *InvalidStore) Expire() int {
 	i := 0
 	st.store.Range(func(k, v interface{}) bool {
@@ -93,16 +94,14 @@ const (
 )
 
 var (
-	port                int
-	maxLoginAttempts    int
-	maxInvalidAttempts  int
-	useImapOnly         bool
-	imapServerAddresses stringSlice
-	smtpServerAddresses stringSlice
-	//invalidAttemptsStore = NewInvalidStore()
+	port                 int
+	maxLoginAttempts     int
+	maxInvalidAttempts   int
+	useImapOnly          bool
+	imapServerAddresses  stringSlice
+	smtpServerAddresses  stringSlice
 	invalidAttemptsStore InvalidStore
 	invalidDuration      time.Duration
-	//myMap sync.Map
 )
 
 func init() {
@@ -114,7 +113,6 @@ func init() {
 	flag.Var(&imapServerAddresses, "imap", "IMAP server addresses (format: host:port,host:port...)")
 	flag.Var(&smtpServerAddresses, "smtp", "SMTP server addresses (format: host:port,host:port...)")
 	flag.Parse()
-	// invalidAttemptsStore.Init()
 	if len(imapServerAddresses) == 0 || len(smtpServerAddresses) == 0 {
 		fmt.Println("Please provide at least one IMAP and SMTP server address")
 		flag.PrintDefaults()
