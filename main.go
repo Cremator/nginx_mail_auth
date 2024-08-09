@@ -202,6 +202,7 @@ func handleSignals(cancel context.CancelFunc) {
 }
 
 func authHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Debug: %#v\n", invalidAttemptsStore.data)
 	i := invalidAttemptsStore.ExpireAll()
 	if i > 0 {
 		log.Printf("Successfully expired %d invalid record(s).\n", i)
