@@ -43,10 +43,16 @@ type InvalidStore struct {
 }
 
 // NewKeyValueStore creates a new instance of KeyValueStore.
-func NewInvalidStore() *InvalidStore {
-	return &InvalidStore{
-		data: make(map[string]InvalidAttempts),
-	}
+// func NewInvalidStore() *InvalidStore {
+// 	return &InvalidStore{
+// 		data: make(map[string]InvalidAttempts),
+// 	}
+// }
+
+func (kv *InvalidStore) Init() {
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	kv.data = make(map[string]InvalidAttempts)
 }
 
 // Set adds or updates a key-value pair in the store with a specified TTL
@@ -129,13 +135,14 @@ const (
 )
 
 var (
-	port                 int
-	maxLoginAttempts     int
-	maxInvalidAttempts   int
-	useImapOnly          bool
-	imapServerAddresses  stringSlice
-	smtpServerAddresses  stringSlice
-	invalidAttemptsStore = NewInvalidStore()
+	port                int
+	maxLoginAttempts    int
+	maxInvalidAttempts  int
+	useImapOnly         bool
+	imapServerAddresses stringSlice
+	smtpServerAddresses stringSlice
+	//invalidAttemptsStore = NewInvalidStore()
+	invalidAttemptsStore InvalidStore
 	invalidDuration      time.Duration
 )
 
@@ -148,7 +155,7 @@ func init() {
 	flag.Var(&imapServerAddresses, "imap", "IMAP server addresses (format: host:port,host:port...)")
 	flag.Var(&smtpServerAddresses, "smtp", "SMTP server addresses (format: host:port,host:port...)")
 	flag.Parse()
-
+	invalidAttemptsStore.Init()
 	if len(imapServerAddresses) == 0 || len(smtpServerAddresses) == 0 {
 		fmt.Println("Please provide at least one IMAP and SMTP server address")
 		flag.PrintDefaults()
