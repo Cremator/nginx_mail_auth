@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/emersion/go-imap/client"
+	"github.com/zeebo/blake3"
 )
 
 type stringSlice []string
@@ -171,6 +172,11 @@ func handleSignals(cancel context.CancelFunc) {
 	cancel()
 }
 
+func hashBlake3(s string) string {
+	hash_byte := blake3.Sum256([]byte(s))
+	return fmt.Sprintf("%x", hash_byte[0:15])
+}
+
 func authHandler(w http.ResponseWriter, r *http.Request) {
 	// log.Printf("Debug: %#v\n", invalidAttemptsStore.data)
 	i := invalidAttemptsStore.Expire()
@@ -181,11 +187,12 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	if m > 0 {
 		log.Printf("Successfully expired %d invalid Mail record(s).\n", m)
 	}
-	log.Printf("Request Header: %#v\n", r.Header)
+	id := hashBlake3(fmt.Sprint(r.Header.Get(AuthUserHeader), r.Header.Get(AuthProtocolHeader), r.Header.Get("Client-IP")))
+	log.Printf("%s|Request Header: %#v\n", id, r.Header)
 	authMethod := r.Header.Get(AuthMethodHeader)
 	if authMethod == "" || authMethod != "plain" {
 		http.Error(w, "Invalid or missing Auth-Method", http.StatusBadRequest)
-		log.Printf("Response Header Auth-Method: %#v\n", w.Header())
+		log.Printf("%s|Response Header Auth-Method: %#v\n", id, w.Header())
 		return
 	}
 
@@ -197,7 +204,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	loginAttempt, _ := strconv.Atoi(loginAttemptStr)
 	if loginAttempt > maxLoginAttempts {
 		http.Error(w, "Too many login attempts", http.StatusUnauthorized)
-		log.Printf("Response Header Login: %#v\n", w.Header())
+		log.Printf("%s|Response Header Login: %#v\n", id, w.Header())
 		return
 	}
 
@@ -205,7 +212,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	if ok {
 		record.Expiration = record.Expiration.Add(invalidDuration)
 		record.Count++
-		log.Printf("Invalid auth attemp # %d for IP: %s\n", record.Count, clientIP)
+		log.Printf("%s|Invalid auth attemp # %d for IP: %s\n", id, record.Count, clientIP)
 	} else {
 		record = InvalidAttempts{Count: 1, Expiration: time.Now().Add(invalidDuration)}
 	}
@@ -213,7 +220,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 	if record.Count > maxInvalidAttempts {
 		http.Error(w, "Too many invalid attempts", http.StatusUnauthorized)
-		log.Printf("Response Header Invalid IP: %#v\n", w.Header())
+		log.Printf("%s|Response Header Invalid IP: %#v\n", id, w.Header())
 		return
 	}
 
@@ -221,7 +228,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	if mok {
 		mrecord.Expiration = mrecord.Expiration.Add(invalidDuration)
 		mrecord.Count++
-		log.Printf("Invalid auth attemp # %d for mail: %s\n", mrecord.Count, authUser)
+		log.Printf("%s|Invalid auth attemp # %d for mail: %s\n", id, mrecord.Count, authUser)
 	} else {
 		mrecord = InvalidAttempts{Count: 1, Expiration: time.Now().Add(invalidDuration)}
 	}
@@ -229,7 +236,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 	if mrecord.Count >= maxInvalidAttempts {
 		http.Error(w, "Too many invalid attempts", http.StatusUnauthorized)
-		log.Printf("Response Header Invalid Mail: %#v\n", w.Header())
+		log.Printf("%s|Response Header Invalid Mail: %#v\n", id, w.Header())
 		return
 	}
 
@@ -248,7 +255,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		result = authenticateSMTP(authUser, authPass)
 	default:
 		http.Error(w, "Unsupported Auth-Protocol", http.StatusBadRequest)
-		log.Printf("Response Header Auth-Protocol: %#v\n", w.Header())
+		log.Printf("%s|Response Header Auth-Protocol: %#v\n", id, w.Header())
 		return
 	}
 
@@ -265,7 +272,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(http.StatusOK)
 
-		log.Printf("Response Header Error: %#v\n", w.Header())
+		log.Printf("%s|Response Header Error: %#v\n", id, w.Header())
 		return
 	}
 	invalidAttemptsStore.Delete(clientIP)
@@ -274,7 +281,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add(AuthServerHeader, result.serverAddr)
 	w.Header().Add(AuthPortHeader, strconv.Itoa(result.serverPort))
 	w.WriteHeader(http.StatusOK)
-	log.Printf("Response Header OK: %#v\n", w.Header())
+	log.Printf("%s|Response Header OK: %#v\n", id, w.Header())
 }
 
 type authResult struct {
