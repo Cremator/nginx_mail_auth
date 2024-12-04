@@ -94,22 +94,23 @@ const (
 )
 
 var (
-	port                 int
-	maxLoginAttempts     int
-	maxInvalidAttempts   int
-	useImapOnly          bool
-	imapServerAddresses  stringSlice
-	smtpServerAddresses  stringSlice
-	invalidAttemptsStore InvalidStore
-	invalidDuration      time.Duration
+	port                     int
+	maxLoginAttempts         int
+	maxInvalidAttempts       int
+	useImapOnly              bool
+	imapServerAddresses      stringSlice
+	smtpServerAddresses      stringSlice
+	invalidAttemptsStore     InvalidStore
+	invalidMailAttemptsStore InvalidStore
+	invalidDuration          time.Duration
 )
 
 func init() {
 	flag.IntVar(&port, "port", 9143, "Port to listen on")
 	flag.IntVar(&maxLoginAttempts, "maxloginattempts", 20, "Max login attempts")
-	flag.IntVar(&maxInvalidAttempts, "maxinvalidattempts", 10, "Max invalid attempts")
+	flag.IntVar(&maxInvalidAttempts, "maxinvalidattempts", 5, "Max invalid attempts")
 	flag.BoolVar(&useImapOnly, "useimaponly", false, "Use only IMAP for authenticating both IMAP & SMTP")
-	flag.DurationVar(&invalidDuration, "invalidduration", time.Minute*60, "Blocked IP addresses are cleaned up after this period")
+	flag.DurationVar(&invalidDuration, "invalidduration", time.Minute*5, "Blocked IP addresses are cleaned up after this period")
 	flag.Var(&imapServerAddresses, "imap", "IMAP server addresses (format: host:port,host:port...)")
 	flag.Var(&smtpServerAddresses, "smtp", "SMTP server addresses (format: host:port,host:port...)")
 	flag.Parse()
@@ -169,7 +170,11 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	// log.Printf("Debug: %#v\n", invalidAttemptsStore.data)
 	i := invalidAttemptsStore.Expire()
 	if i > 0 {
-		log.Printf("Successfully expired %d invalid record(s).\n", i)
+		log.Printf("Successfully expired %d invalid IP record(s).\n", i)
+	}
+	m := invalidMailAttemptsStore.Expire()
+	if m > 0 {
+		log.Printf("Successfully expired %d invalid Mail record(s).\n", m)
 	}
 	log.Printf("Request Header: %#v\n", r.Header)
 	authMethod := r.Header.Get(AuthMethodHeader)
@@ -203,7 +208,23 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 	if record.Count > maxInvalidAttempts {
 		http.Error(w, "Too many invalid attempts", http.StatusUnauthorized)
-		log.Printf("Response Header Invalid: %#v\n", w.Header())
+		log.Printf("Response Header Invalid IP: %#v\n", w.Header())
+		return
+	}
+
+	mrecord, mok := invalidMailAttemptsStore.Get(authUser)
+	if mok {
+		mrecord.Expiration = time.Now().Add(invalidDuration)
+		mrecord.Count++
+		log.Printf("Invalid auth attemp # %d for mail: %s\n", mrecord.Count, authUser)
+	} else {
+		mrecord = InvalidAttempts{Count: 1, Expiration: time.Now().Add(invalidDuration)}
+	}
+	invalidMailAttemptsStore.Set(authUser, mrecord)
+
+	if mrecord.Count >= maxInvalidAttempts {
+		http.Error(w, "Too many invalid attempts", http.StatusUnauthorized)
+		log.Printf("Response Header Invalid Mail: %#v\n", w.Header())
 		return
 	}
 
