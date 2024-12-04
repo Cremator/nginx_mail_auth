@@ -123,6 +123,9 @@ func init() {
 	}
 	log.Printf("IMAP servers: %v", imapServerAddresses)
 	log.Printf("SMTP servers: %v", smtpServerAddresses)
+	log.Printf("useImapOnly: %v", useImapOnly)
+	log.Printf("invalidDuration: %v", invalidDuration)
+	log.Printf("maxInvalidAttempts: %v", maxInvalidAttempts)
 }
 
 func main() {
@@ -234,12 +237,14 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	if useImapOnly && authProtocol == "smtp" {
 		result = authenticateIMAP(authUser, authPass)
 		result.serverPort = useImapOnlyPort
-		result.serverType = "smtp"
 	}
 	switch strings.ToLower(authProtocol) {
 	case "imap":
 		result = authenticateIMAP(authUser, authPass)
 	case "smtp":
+		if useImapOnly {
+			break
+		}
 		result = authenticateSMTP(authUser, authPass)
 	default:
 		http.Error(w, "Unsupported Auth-Protocol", http.StatusBadRequest)
