@@ -269,6 +269,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	invalidAttemptsStore.Delete(clientIP)
+	invalidMailAttemptsStore.Delete(authUser)
 	w.Header().Add(AuthStatusHeader, "OK")
 	w.Header().Add(AuthServerHeader, result.serverAddr)
 	w.Header().Add(AuthPortHeader, strconv.Itoa(result.serverPort))
