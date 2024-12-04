@@ -232,14 +232,13 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 	var result authResult
 	if useImapOnly && authProtocol == "smtp" {
-		authProtocol = "imap"
+		result = authenticateIMAP(authUser, authPass)
+		result.serverPort = useImapOnlyPort
+		result.serverType = "smtp"
 	}
 	switch strings.ToLower(authProtocol) {
 	case "imap":
 		result = authenticateIMAP(authUser, authPass)
-		if useImapOnly {
-			result.serverPort = useImapOnlyPort
-		}
 	case "smtp":
 		result = authenticateSMTP(authUser, authPass)
 	default:
