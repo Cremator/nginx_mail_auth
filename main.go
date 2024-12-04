@@ -203,7 +203,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 	record, ok := invalidAttemptsStore.Get(clientIP)
 	if ok {
-		record.Expiration.Add(invalidDuration)
+		record.Expiration = record.Expiration.Add(invalidDuration)
 		record.Count++
 		log.Printf("Invalid auth attemp # %d for IP: %s\n", record.Count, clientIP)
 	} else {
@@ -219,7 +219,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 	mrecord, mok := invalidMailAttemptsStore.Get(authUser)
 	if mok {
-		mrecord.Expiration.Add(invalidDuration)
+		mrecord.Expiration = mrecord.Expiration.Add(invalidDuration)
 		mrecord.Count++
 		log.Printf("Invalid auth attemp # %d for mail: %s\n", mrecord.Count, authUser)
 	} else {
