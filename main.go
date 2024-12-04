@@ -203,7 +203,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 	record, ok := invalidAttemptsStore.Get(clientIP)
 	if ok {
-		record.Expiration = time.Now().Add(invalidDuration)
+		record.Expiration.Add(invalidDuration)
 		record.Count++
 		log.Printf("Invalid auth attemp # %d for IP: %s\n", record.Count, clientIP)
 	} else {
@@ -219,7 +219,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 	mrecord, mok := invalidMailAttemptsStore.Get(authUser)
 	if mok {
-		mrecord.Expiration = time.Now().Add(invalidDuration)
+		mrecord.Expiration.Add(invalidDuration)
 		mrecord.Count++
 		log.Printf("Invalid auth attemp # %d for mail: %s\n", mrecord.Count, authUser)
 	} else {
@@ -261,7 +261,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Header().Add(AuthStatusHeader, errorMessage)
-		w.Header().Add(AuthWaitHeader, strconv.Itoa(record.Count*3))
+		w.Header().Add(AuthWaitHeader, strconv.Itoa(max(record.Count, mrecord.Count)*3))
 
 		w.WriteHeader(http.StatusOK)
 
@@ -282,6 +282,13 @@ type authResult struct {
 	serverPort int
 	serverType string
 	err        error
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func authenticateIMAP(username, password string) authResult {
