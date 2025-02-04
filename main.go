@@ -81,47 +81,54 @@ func (st *InvalidStore) Expire() int {
 	return i
 }
 
+// Constants used for headers
 const (
-	AuthMethodHeader    = "Auth-Method"
-	AuthUserHeader      = "Auth-User"
-	AuthPassHeader      = "Auth-Pass"
-	AuthProtocolHeader  = "Auth-Protocol"
-	AuthLoginAttempt    = "Auth-Login-Attempt"
-	AuthStatusHeader    = "Auth-Status"
-	AuthServerHeader    = "Auth-Server"
-	AuthPortHeader      = "Auth-Port"
-	AuthWaitHeader      = "Auth-Wait"
-	AuthErrorCodeHeader = "Auth-Error-Code"
+	AuthMethodHeader    = "Auth-Method"        // HTTP header to specify the authentication method
+	AuthUserHeader      = "Auth-User"          // HTTP header to provide the username
+	AuthPassHeader      = "Auth-Pass"          // HTTP header to provide the password
+	AuthProtocolHeader  = "Auth-Protocol"      // HTTP header to specify the protocol (e.g., IMAP, SMTP)
+	AuthLoginAttempt    = "Auth-Login-Attempt" // HTTP header indicating a login attempt
+	AuthStatusHeader    = "Auth-Status"        // HTTP header to indicate success or failure of authentication
+	AuthServerHeader    = "Auth-Server"        // HTTP header to specify the server for the protocol
+	AuthPortHeader      = "Auth-Port"          // HTTP header to specify the port number
+	AuthWaitHeader      = "Auth-Wait"          // HTTP header to indicate waiting period before next attempt
+	AuthErrorCodeHeader = "Auth-Error-Code"    // HTTP header to return error codes
 )
 
 var (
-	port                     int
-	maxLoginAttempts         int
-	maxInvalidAttempts       int
-	useImapOnly              bool
-	useImapOnlyPort          int
-	imapServerAddresses      stringSlice
-	smtpServerAddresses      stringSlice
-	invalidAttemptsStore     InvalidStore
-	invalidMailAttemptsStore InvalidStore
-	invalidDuration          time.Duration
+	port                     int           // Port number on which the server listens for incoming connections
+	maxLoginAttempts         int           // Maximum allowed login attempts per user or IP address
+	maxInvalidAttempts       int           // Maximum number of invalid attempts before blocking
+	useImapOnly              bool          // Whether to use IMAP only for authenticating both IMAP and SMTP protocols
+	useImapOnlyPort          int           // Port number when using IMAP only, typically used for SMTP as well
+	imapServerAddresses      stringSlice   // List of IMAP server addresses in host:port format
+	smtpServerAddresses      stringSlice   // List of SMTP server addresses in host:port format
+	invalidAttemptsStore     InvalidStore  // Store tracking invalid login attempts with their counts and expiration times
+	invalidMailAttemptsStore InvalidStore  // Store tracking invalid mail-related attempts, similar to invalidAttemptsStore
+	invalidDuration          time.Duration // Duration for which IP addresses are blocked after reaching maxInvalidAttempts
 )
 
+// Initialize variables from command-line flags or default values
 func init() {
-	flag.IntVar(&port, "port", 9143, "Port to listen on")
-	flag.IntVar(&maxLoginAttempts, "maxloginattempts", 20, "Max login attempts")
-	flag.IntVar(&maxInvalidAttempts, "maxinvalidattempts", 5, "Max invalid attempts")
-	flag.IntVar(&useImapOnlyPort, "useimaponlyport", 25, "Use only IMAP for authenticating both IMAP & SMTP - SMTP port")
-	flag.BoolVar(&useImapOnly, "useimaponly", false, "Use only IMAP for authenticating both IMAP & SMTP")
-	flag.DurationVar(&invalidDuration, "invalidduration", time.Minute*5, "Blocked IP addresses are cleaned up after this period")
-	flag.Var(&imapServerAddresses, "imap", "IMAP server addresses (format: host:port,host:port...)")
-	flag.Var(&smtpServerAddresses, "smtp", "SMTP server addresses (format: host:port,host:port...)")
-	flag.Parse()
+	flag.IntVar(&port, "port", 9143, "Port to listen on")                                                                         // Set default port and parse the --port flag
+	flag.IntVar(&maxLoginAttempts, "maxloginattempts", 20, "Max login attempts allowed")                                          // Maximum number of allowed login attempts per user or IP
+	flag.IntVar(&maxInvalidAttempts, "maxinvalidattempts", 5, "Max invalid attempts before blocking")                             // Threshold for blocking after too many failed attempts
+	flag.IntVar(&useImapOnlyPort, "useimaponlyport", 25, "Use only IMAP for authenticating both IMAP & SMTP - SMTP port")         // Port when using IMAP-only authentication
+	flag.BoolVar(&useImapOnly, "useimaponly", false, "Use only IMAP for authenticating both IMAP & SMTP")                         // Toggle to use IMAP for all authentication tasks
+	flag.DurationVar(&invalidDuration, "invalidduration", time.Minute*5, "Blocked IP addresses are cleaned up after this period") // Time before blocked IPs are cleared
+	flag.Var(&imapServerAddresses, "imap", "IMAP server addresses (format: host:port,host:port...)")                              // Collect IMAP server addresses from flags
+	flag.Var(&smtpServerAddresses, "smtp", "SMTP server addresses (format: host:port,host:port...)")                              // Collect SMTP server addresses from flags
+
+	flag.Parse() // Parse all command-line flags
+
+	// Validate that at least one IMAP and SMTP server is provided
 	if len(imapServerAddresses) == 0 || len(smtpServerAddresses) == 0 {
-		fmt.Println("Please provide at least one IMAP and SMTP server address")
-		flag.PrintDefaults()
-		os.Exit(1)
+		fmt.Println("Please provide at least one IMAP and SMTP server address") // Error message if no servers are specified
+		flag.PrintDefaults()                                                    // Print default help message showing all flags
+		os.Exit(1)                                                              // Exit with error code 1 due to missing required parameters
 	}
+
+	// Log configuration details for verification
 	log.Printf("IMAP servers: %v", imapServerAddresses)
 	log.Printf("SMTP servers: %v", smtpServerAddresses)
 	log.Printf("useImapOnly: %v", useImapOnly)
