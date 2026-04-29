@@ -118,7 +118,11 @@ func init() {
 	flag.DurationVar(&invalidDuration, "invalidduration", time.Minute*5, "Blocked IP addresses are cleaned up after this period") // Time before blocked IPs are cleared
 	flag.Var(&imapServerAddresses, "imap", "IMAP server addresses (format: host:port,host:port...)")                              // Collect IMAP server addresses from flags
 	flag.Var(&smtpServerAddresses, "smtp", "SMTP server addresses (format: host:port,host:port...)")                              // Collect SMTP server addresses from flags
+}
 
+func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	flag.Parse() // Parse all command-line flags
 
 	// Validate that at least one IMAP and SMTP server is provided
@@ -134,11 +138,6 @@ func init() {
 	log.Printf("useImapOnly: %v", useImapOnly)
 	log.Printf("invalidDuration: %v", invalidDuration)
 	log.Printf("maxInvalidAttempts: %v", maxInvalidAttempts)
-}
-
-func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	go handleSignals(cancel)
 
