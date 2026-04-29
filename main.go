@@ -298,13 +298,6 @@ type authResult struct {
 	err        error
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 func authenticateIMAP(username, password string) authResult {
 	for _, addr := range imapServerAddresses {
 		c, err := client.Dial(addr)
@@ -346,7 +339,7 @@ func authenticateSMTPNet(username, password string, smtpServer string) authResul
 		return authResult{err: fmt.Errorf("invalid SMTP server port: %v", err)}
 	}
 
-	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", host, port))
+	conn, err := net.Dial("tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
 	if err != nil {
 		return authResult{err: fmt.Errorf("failed to connect to SMTP server: %v", err)}
 	}

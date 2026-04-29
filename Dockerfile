@@ -1,4 +1,4 @@
-FROM golang:1.22.1-alpine AS build-env
+FROM golang:1.26-alpine AS build-env
 
 WORKDIR /build
 
@@ -13,7 +13,7 @@ COPY main.go go.mod go.sum /build/
 RUN go version
 RUN go build
 
-FROM alpine:3.19.1
+FROM alpine:3.23
 
 COPY --from=build-env /build/nginx_mail_auth /nginx_mail_auth
 
