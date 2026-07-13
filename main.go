@@ -100,6 +100,7 @@ var (
 	maxLoginAttempts         int           // Maximum allowed login attempts per user or IP address
 	maxInvalidAttempts       int           // Maximum number of invalid attempts before blocking
 	useImapOnly              bool          // Whether to use IMAP only for authenticating both IMAP and SMTP protocols
+	maskPass                 bool          // Whether to mask password in logs
 	useImapOnlyPort          int           // Port number when using IMAP only, typically used for SMTP as well
 	imapServerAddresses      stringSlice   // List of IMAP server addresses in host:port format
 	smtpServerAddresses      stringSlice   // List of SMTP server addresses in host:port format
@@ -115,6 +116,7 @@ func init() {
 	flag.IntVar(&maxInvalidAttempts, "maxinvalidattempts", 5, "Max invalid attempts before blocking")                             // Threshold for blocking after too many failed attempts
 	flag.IntVar(&useImapOnlyPort, "useimaponlyport", 25, "Use only IMAP for authenticating both IMAP & SMTP - SMTP port")         // Port when using IMAP-only authentication
 	flag.BoolVar(&useImapOnly, "useimaponly", false, "Use only IMAP for authenticating both IMAP & SMTP")                         // Toggle to use IMAP for all authentication tasks
+	flag.BoolVar(&maskPass, "maskpass", true, "Mask password in logs")                                                            // Toggle to mask password in logs
 	flag.DurationVar(&invalidDuration, "invalidduration", time.Minute*5, "Blocked IP addresses are cleaned up after this period") // Time before blocked IPs are cleared
 	flag.Var(&imapServerAddresses, "imap", "IMAP server addresses (format: host:port,host:port...)")                              // Collect IMAP server addresses from flags
 	flag.Var(&smtpServerAddresses, "smtp", "SMTP server addresses (format: host:port,host:port...)")                              // Collect SMTP server addresses from flags
@@ -183,6 +185,15 @@ func hashBlake3(s string) string {
 	return fmt.Sprintf("%x", hash_byte[0:15])
 }
 
+func maskAuthPass(h http.Header) http.Header {
+	if h == nil {
+		return nil
+	}
+	c := h.Clone()
+	c.Set(AuthPassHeader, "***MASKED***")
+	return c
+}
+
 func authHandler(w http.ResponseWriter, r *http.Request) {
 	// log.Printf("Debug: %#v\n", invalidAttemptsStore.data)
 	i := invalidAttemptsStore.Expire()
@@ -194,7 +205,11 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Successfully expired %d invalid Mail record(s).\n", m)
 	}
 	id := hashBlake3(fmt.Sprint(r.Header.Get(AuthUserHeader), r.Header.Get(AuthProtocolHeader), r.Header.Get("Client-IP")))
-	log.Printf("%s|Request Header: %#v\n", id, r.Header)
+	if maskPass {
+		log.Printf("%s|Request Header: %#v\n", id, maskAuthPass(r.Header))
+	} else {
+		log.Printf("%s|Request Header: %#v\n", id, r.Header)
+	}
 	authMethod := r.Header.Get(AuthMethodHeader)
 	if authMethod == "" || authMethod != "plain" {
 		http.Error(w, "Invalid or missing Auth-Method", http.StatusBadRequest)
