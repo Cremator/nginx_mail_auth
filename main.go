@@ -70,7 +70,7 @@ func (st *InvalidStore) Delete(key string) {
 // Walk the map and delete expired keys
 func (st *InvalidStore) Expire() int {
 	i := 0
-	st.store.Range(func(k, v interface{}) bool {
+	st.store.Range(func(k, v any) bool {
 		key := k.(string)
 		if _, d := st.Get(key); !d {
 			i++
@@ -93,6 +93,7 @@ const (
 	AuthPortHeader      = "Auth-Port"          // HTTP header to specify the port number
 	AuthWaitHeader      = "Auth-Wait"          // HTTP header to indicate waiting period before next attempt
 	AuthErrorCodeHeader = "Auth-Error-Code"    // HTTP header to return error codes
+	ClientIPHeader      = "Client-IP"          // HTTP header to provide the client's IP address
 )
 
 var (
@@ -135,11 +136,10 @@ func main() {
 	}
 
 	// Log configuration details for verification
-	log.Printf("IMAP servers: %v", imapServerAddresses)
-	log.Printf("SMTP servers: %v", smtpServerAddresses)
-	log.Printf("useImapOnly: %v", useImapOnly)
-	log.Printf("invalidDuration: %v", invalidDuration)
-	log.Printf("maxInvalidAttempts: %v", maxInvalidAttempts)
+	log.Println("Configuration:")
+	flag.VisitAll(func(f *flag.Flag) {
+		log.Printf("  %s = %s", f.Name, f.Value.String())
+	})
 
 	go handleSignals(cancel)
 
@@ -155,10 +155,11 @@ func startServer(ctx context.Context) *http.Server {
 	}
 
 	go func() {
-		log.Printf("Server listening on port %d...\n", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
 		}
+		log.Println("Server is up and running...")
+
 	}()
 
 	go func() {
@@ -204,7 +205,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	if m > 0 {
 		log.Printf("Successfully expired %d invalid Mail record(s).\n", m)
 	}
-	id := hashBlake3(fmt.Sprint(r.Header.Get(AuthUserHeader), r.Header.Get(AuthProtocolHeader), r.Header.Get("Client-IP")))
+	id := hashBlake3(fmt.Sprint(r.Header.Get(AuthUserHeader), r.Header.Get(AuthProtocolHeader), r.Header.Get(ClientIPHeader)))
 	if maskPass {
 		log.Printf("%s|Request Header: %#v\n", id, maskAuthPass(r.Header))
 	} else {
@@ -221,7 +222,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	authPass := r.Header.Get(AuthPassHeader)
 	authProtocol := r.Header.Get(AuthProtocolHeader)
 	loginAttemptStr := r.Header.Get(AuthLoginAttempt)
-	clientIP := r.Header.Get("Client-IP")
+	clientIP := r.Header.Get(ClientIPHeader)
 	loginAttempt, _ := strconv.Atoi(loginAttemptStr)
 	if loginAttempt > maxLoginAttempts {
 		http.Error(w, "Too many login attempts", http.StatusUnauthorized)
