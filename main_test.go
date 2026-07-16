@@ -21,47 +21,38 @@ func TestHashBlake3Deterministic(t *testing.T) {
 }
 
 func TestInvalidStoreSetGetDelete(t *testing.T) {
-	store := &InvalidStore{}
+	store := NewLimiter(1, time.Hour)
 
 	key := "127.0.0.1"
-	val := InvalidAttempts{
-		Count:      1,
-		Expiration: time.Now().Add(time.Minute),
-	}
 
-	store.Set(key, val)
+	store.Register(key)
 
-	got, ok := store.Get(key)
+	_, ok := store.Blocked(key)
 	if !ok {
-		t.Fatalf("expected key to exist")
+		t.Fatalf("must be blocked after registration")
 	}
 
-	if got.Count != 1 {
-		t.Fatalf("expected count 1, got %d", got.Count)
-	}
+	store.Reset(key)
 
-	store.Delete(key)
-
-	_, ok = store.Get(key)
+	_, ok = store.Blocked(key)
 	if ok {
 		t.Fatalf("expected key to be deleted")
 	}
 }
 
 func TestInvalidStoreExpire(t *testing.T) {
-	store := &InvalidStore{}
+	store := NewLimiter(1, time.Second)
 
-	store.Set("expired", InvalidAttempts{
-		Count:      1,
-		Expiration: time.Now().Add(-time.Minute),
-	})
-
-	store.Set("valid", InvalidAttempts{
-		Count:      1,
-		Expiration: time.Now().Add(time.Minute),
-	})
+	// Simulate an expired entry
+	store.Register("expired")
 
 	removed := store.Expire()
+	if removed != 0 {
+		t.Fatalf("expected no expired entries to be cleaned")
+	}
+
+	time.Sleep(2 * time.Second)
+	removed = store.Expire()
 
 	if removed == 0 {
 		t.Fatalf("expected expired entries to be cleaned")
@@ -121,7 +112,7 @@ func TestAuthHandlerUnsupportedProtocol(t *testing.T) {
 	req.Header.Set(AuthMethodHeader, "plain")
 	req.Header.Set(AuthUserHeader, "user")
 	req.Header.Set(AuthPassHeader, "pass")
-	req.Header.Set(AuthProtocolHeader, "ftp")
+	req.Header.Set(AuthProtocolHeader, "sftp") // unsupported protocol
 
 	w := httptest.NewRecorder()
 

@@ -31,54 +31,98 @@ func (ss *stringSlice) Set(value string) error {
 	return nil
 }
 
-// Attempts represents a count with TTL
-type InvalidAttempts struct {
-	Count      int
-	Expiration time.Time
+// attemptRecord tracks failed attempts for a single key.
+type attemptRecord struct {
+	mu         sync.Mutex
+	count      int
+	expiration time.Time
 }
 
-// Store struct using sync.Map
-type InvalidStore struct {
-	store sync.Map
+// Limiter is a thread-safe, per-key attempt counter with TTL-based lockout.
+// A key is "blocked" once it accumulates `max` attempts within `window`.
+// Each attempt refreshes the window (sliding lockout).
+type Limiter struct {
+	store  sync.Map // map[string]*attemptRecord
+	max    int
+	window time.Duration
 }
 
-// Set a value in the store
-func (st *InvalidStore) Set(key string, value InvalidAttempts) {
-	st.store.Store(key, value)
+func NewLimiter(max int, window time.Duration) *Limiter {
+	return &Limiter{max: max, window: window}
 }
 
-// Get a value by key from the store
-func (st *InvalidStore) Get(key string) (InvalidAttempts, bool) {
-	val, ok := st.store.Load(key)
-	ival := InvalidAttempts{Count: 0, Expiration: time.Now()}
-	if ok {
-		InvalidAttemptsV := val.(InvalidAttempts)
-		if InvalidAttemptsV.Expiration.IsZero() || time.Now().After(InvalidAttemptsV.Expiration) {
-			st.Delete(key)
-			ok = false
-		}
-		ival = InvalidAttemptsV
+// Register records a failed attempt for key and returns the new count
+// plus whether the key is now blocked.
+func (l *Limiter) Register(key string) int {
+	if l == nil {
+		return 0
 	}
-	return ival, ok
+	actual, _ := l.store.LoadOrStore(key, &attemptRecord{})
+	rec := actual.(*attemptRecord)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+
+	now := time.Now()
+	if rec.expiration.IsZero() || now.After(rec.expiration) {
+		rec.count = 0 // expired or brand new
+	}
+	rec.count++
+	rec.expiration = now.Add(l.window)
+
+	return rec.count
 }
 
-// Delete a value by key from the store
-func (st *InvalidStore) Delete(key string) {
-	st.store.Delete(key)
+// Blocked checks status without registering a new attempt.
+func (l *Limiter) Blocked(key string) (int, bool) {
+	if l == nil {
+		return 0, false
+	}
+	v, ok := l.store.Load(key)
+	if !ok {
+		return 0, false
+	}
+	rec := v.(*attemptRecord)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+
+	if rec.expiration.IsZero() || time.Now().After(rec.expiration) {
+		return 0, false
+	}
+	return rec.count, rec.count >= l.max
 }
 
-// Walk the map and delete expired keys
-func (st *InvalidStore) Expire() int {
-	i := 0
-	st.store.Range(func(k, v any) bool {
-		key := k.(string)
-		if _, d := st.Get(key); !d {
-			i++
+// Reset clears a key's record, e.g. after a successful login.
+func (l *Limiter) Reset(key ...string) {
+	if l == nil {
+		return
+	}
+	for _, k := range key {
+		l.store.Delete(k)
+	}
+}
+
+// Expire sweeps the store and deletes expired records. Call this
+// periodically from a background goroutine.
+func (l *Limiter) Expire() int {
+	if l == nil {
+		return 0
+	}
+	n := 0
+	now := time.Now()
+	l.store.Range(func(k, v any) bool {
+		rec := v.(*attemptRecord)
+		rec.mu.Lock()
+		expired := rec.expiration.IsZero() || now.After(rec.expiration)
+		rec.mu.Unlock()
+		if expired {
+			l.store.Delete(k)
+			n++
 		}
 		return true
 	})
-
-	return i
+	return n
 }
 
 // Constants used for headers
@@ -97,17 +141,16 @@ const (
 )
 
 var (
-	port                     int           // Port number on which the server listens for incoming connections
-	maxLoginAttempts         int           // Maximum allowed login attempts per user or IP address
-	maxInvalidAttempts       int           // Maximum number of invalid attempts before blocking
-	useImapOnly              bool          // Whether to use IMAP only for authenticating both IMAP and SMTP protocols
-	maskPass                 bool          // Whether to mask password in logs
-	useImapOnlyPort          int           // Port number when using IMAP only, typically used for SMTP as well
-	imapServerAddresses      stringSlice   // List of IMAP server addresses in host:port format
-	smtpServerAddresses      stringSlice   // List of SMTP server addresses in host:port format
-	invalidAttemptsStore     InvalidStore  // Store tracking invalid login attempts with their counts and expiration times
-	invalidMailAttemptsStore InvalidStore  // Store tracking invalid mail-related attempts, similar to invalidAttemptsStore
-	invalidDuration          time.Duration // Duration for which IP addresses are blocked after reaching maxInvalidAttempts
+	port                 int           // Port number on which the server listens for incoming connections
+	maxLoginAttempts     int           // Maximum allowed login attempts per user or IP address
+	maxInvalidAttempts   int           // Maximum number of invalid attempts before blocking
+	useImapOnly          bool          // Whether to use IMAP only for authenticating both IMAP and SMTP protocols
+	maskPass             bool          // Whether to mask password in logs
+	useImapOnlyPort      int           // Port number when using IMAP only, typically used for SMTP as well
+	imapServerAddresses  stringSlice   // List of IMAP server addresses in host:port format
+	smtpServerAddresses  stringSlice   // List of SMTP server addresses in host:port format
+	invalidAttemptsStore *Limiter      // Limiter tracking invalid login attempts with their counts and expiration times
+	invalidDuration      time.Duration // Duration for which IP addresses are blocked after reaching maxInvalidAttempts
 )
 
 // Initialize variables from command-line flags or default values
@@ -121,13 +164,14 @@ func init() {
 	flag.DurationVar(&invalidDuration, "invalidduration", time.Minute*5, "Blocked IP addresses are cleaned up after this period") // Time before blocked IPs are cleared
 	flag.Var(&imapServerAddresses, "imap", "IMAP server addresses (format: host:port,host:port...)")                              // Collect IMAP server addresses from flags
 	flag.Var(&smtpServerAddresses, "smtp", "SMTP server addresses (format: host:port,host:port...)")                              // Collect SMTP server addresses from flags
+	invalidAttemptsStore = NewLimiter(maxInvalidAttempts, invalidDuration)                                                        // uses flag defaults at this point
 }
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	flag.Parse() // Parse all command-line flags
-
+	flag.Parse()                                                           // Parse all command-line flags
+	invalidAttemptsStore = NewLimiter(maxInvalidAttempts, invalidDuration) // Initialize the Limiter for tracking invalid attempts
 	// Validate that at least one IMAP and SMTP server is provided
 	if len(imapServerAddresses) == 0 || len(smtpServerAddresses) == 0 {
 		fmt.Println("Please provide at least one IMAP and SMTP server address") // Error message if no servers are specified
@@ -142,6 +186,22 @@ func main() {
 	})
 
 	go handleSignals(cancel)
+
+	// periodic sweep, e.g. once a minute
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if n := invalidAttemptsStore.Expire(); n > 0 {
+					log.Printf("Successfully expired %d record(s).\n", n)
+				}
+			}
+		}
+	}()
 
 	server := startServer(ctx)
 	<-ctx.Done()
@@ -196,15 +256,6 @@ func maskAuthPass(h http.Header) http.Header {
 }
 
 func authHandler(w http.ResponseWriter, r *http.Request) {
-	// log.Printf("Debug: %#v\n", invalidAttemptsStore.data)
-	i := invalidAttemptsStore.Expire()
-	if i > 0 {
-		log.Printf("Successfully expired %d invalid IP record(s).\n", i)
-	}
-	m := invalidMailAttemptsStore.Expire()
-	if m > 0 {
-		log.Printf("Successfully expired %d invalid Mail record(s).\n", m)
-	}
 	id := hashBlake3(fmt.Sprint(r.Header.Get(AuthUserHeader), r.Header.Get(AuthProtocolHeader), r.Header.Get(ClientIPHeader)))
 	if maskPass {
 		log.Printf("%s|Request Header: %#v\n", id, maskAuthPass(r.Header))
@@ -230,35 +281,19 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	record, ok := invalidAttemptsStore.Get(clientIP)
-	if ok {
-		record.Expiration = record.Expiration.Add(invalidDuration)
-		record.Count++
-		log.Printf("%s|Invalid auth attemp # %d for IP: %s\n", id, record.Count, clientIP)
-	} else {
-		record = InvalidAttempts{Count: 1, Expiration: time.Now().Add(invalidDuration)}
-	}
-	invalidAttemptsStore.Set(clientIP, record)
-
-	if record.Count > maxInvalidAttempts {
+	count, blocked := invalidAttemptsStore.Blocked(clientIP)
+	log.Printf("%s|Invalid auth attempt # %d for IP: %s\n", id, count, clientIP)
+	if blocked {
 		http.Error(w, "Too many invalid attempts", http.StatusUnauthorized)
-		log.Printf("%s|Response Header Invalid IP: %#v\n", id, w.Header())
+		log.Printf("%s|Response Header Blocked IP: %#v\n", id, w.Header())
 		return
 	}
 
-	mrecord, mok := invalidMailAttemptsStore.Get(authUser)
-	if mok {
-		mrecord.Expiration = mrecord.Expiration.Add(invalidDuration)
-		mrecord.Count++
-		log.Printf("%s|Invalid auth attemp # %d for mail: %s\n", id, mrecord.Count, authUser)
-	} else {
-		mrecord = InvalidAttempts{Count: 1, Expiration: time.Now().Add(invalidDuration)}
-	}
-	invalidMailAttemptsStore.Set(authUser, mrecord)
-
-	if mrecord.Count >= maxInvalidAttempts {
+	mcount, mblocked := invalidAttemptsStore.Blocked(authUser)
+	log.Printf("%s|Invalid auth attempt # %d for mail: %s\n", id, mcount, authUser)
+	if mblocked {
 		http.Error(w, "Too many invalid attempts", http.StatusUnauthorized)
-		log.Printf("%s|Response Header Invalid Mail: %#v\n", id, w.Header())
+		log.Printf("%s|Response Header Blocked Mail: %#v\n", id, w.Header())
 		return
 	}
 
@@ -283,22 +318,21 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 	if result.err != nil {
 		errorMessage := result.err.Error()
-
+		rcount := max(invalidAttemptsStore.Register(clientIP), invalidAttemptsStore.Register(authUser))
 		if strings.ToLower(authProtocol) == "smtp" {
 			errorMessage = "Temporary server problem, try again later"
 			w.Header().Add(AuthErrorCodeHeader, result.err.Error())
 		}
 
 		w.Header().Add(AuthStatusHeader, errorMessage)
-		w.Header().Add(AuthWaitHeader, strconv.Itoa(max(record.Count, mrecord.Count)*3))
+		w.Header().Add(AuthWaitHeader, strconv.Itoa(rcount*3))
 
 		w.WriteHeader(http.StatusOK)
 
 		log.Printf("%s|Response Header Error: %#v\n", id, w.Header())
 		return
 	}
-	invalidAttemptsStore.Delete(clientIP)
-	invalidMailAttemptsStore.Delete(authUser)
+	invalidAttemptsStore.Reset(clientIP, authUser)
 	w.Header().Add(AuthStatusHeader, "OK")
 	w.Header().Add(AuthServerHeader, result.serverAddr)
 	w.Header().Add(AuthPortHeader, strconv.Itoa(result.serverPort))
