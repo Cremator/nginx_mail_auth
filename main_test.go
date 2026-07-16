@@ -27,15 +27,13 @@ func TestInvalidStoreSetGetDelete(t *testing.T) {
 
 	store.Register(key)
 
-	_, ok := store.Blocked(key)
-	if !ok {
+	if !store.Blocked(key) {
 		t.Fatalf("must be blocked after registration")
 	}
 
 	store.Reset(key)
 
-	_, ok = store.Blocked(key)
-	if ok {
+	if store.Blocked(key) {
 		t.Fatalf("expected key to be deleted")
 	}
 }

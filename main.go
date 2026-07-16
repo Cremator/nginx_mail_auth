@@ -51,8 +51,7 @@ func NewLimiter(max int, window time.Duration) *Limiter {
 	return &Limiter{max: max, window: window}
 }
 
-// Register records a failed attempt for key and returns the new count
-// plus whether the key is now blocked.
+// Register records a failed attempt for key and returns the new count.
 func (l *Limiter) Register(key string) int {
 	if l == nil {
 		return 0
@@ -74,13 +73,13 @@ func (l *Limiter) Register(key string) int {
 }
 
 // Blocked checks status without registering a new attempt.
-func (l *Limiter) Blocked(key string) (int, bool) {
+func (l *Limiter) Blocked(key string) bool {
 	if l == nil {
-		return 0, false
+		return false
 	}
 	v, ok := l.store.Load(key)
 	if !ok {
-		return 0, false
+		return false
 	}
 	rec := v.(*attemptRecord)
 
@@ -88,9 +87,9 @@ func (l *Limiter) Blocked(key string) (int, bool) {
 	defer rec.mu.Unlock()
 
 	if rec.expiration.IsZero() || time.Now().After(rec.expiration) {
-		return 0, false
+		return false
 	}
-	return rec.count, rec.count >= l.max
+	return rec.count >= l.max
 }
 
 // Reset clears a key's record, e.g. after a successful login.
@@ -281,17 +280,13 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	count, blocked := invalidAttemptsStore.Blocked(clientIP)
-	log.Printf("%s|Invalid auth attempt # %d for IP: %s\n", id, count, clientIP)
-	if blocked {
+	if invalidAttemptsStore.Blocked(clientIP) {
 		http.Error(w, "Too many invalid attempts", http.StatusUnauthorized)
 		log.Printf("%s|Response Header Blocked IP: %#v\n", id, w.Header())
 		return
 	}
 
-	mcount, mblocked := invalidAttemptsStore.Blocked(authUser)
-	log.Printf("%s|Invalid auth attempt # %d for mail: %s\n", id, mcount, authUser)
-	if mblocked {
+	if invalidAttemptsStore.Blocked(authUser) {
 		http.Error(w, "Too many invalid attempts", http.StatusUnauthorized)
 		log.Printf("%s|Response Header Blocked Mail: %#v\n", id, w.Header())
 		return
@@ -318,14 +313,17 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 	if result.err != nil {
 		errorMessage := result.err.Error()
-		rcount := max(invalidAttemptsStore.Register(clientIP), invalidAttemptsStore.Register(authUser))
+		count := invalidAttemptsStore.Register(clientIP)
+		log.Printf("%s|Invalid auth attempt # %d for IP: %s\n", id, count, clientIP)
+		mcount := invalidAttemptsStore.Register(authUser)
+		log.Printf("%s|Invalid auth attempts # %d for mail: %s\n", id, mcount, authUser)
 		if strings.ToLower(authProtocol) == "smtp" {
 			errorMessage = "Temporary server problem, try again later"
 			w.Header().Add(AuthErrorCodeHeader, result.err.Error())
 		}
 
 		w.Header().Add(AuthStatusHeader, errorMessage)
-		w.Header().Add(AuthWaitHeader, strconv.Itoa(rcount*3))
+		w.Header().Add(AuthWaitHeader, strconv.Itoa(max(count, mcount)*3))
 
 		w.WriteHeader(http.StatusOK)
 
